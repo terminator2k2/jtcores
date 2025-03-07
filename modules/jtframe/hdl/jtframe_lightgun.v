@@ -27,12 +27,16 @@ module jtframe_lightgun (
     output [ 8:0] gun_1p_y,
     output [ 8:0] gun_2p_x,
     output [ 8:0] gun_2p_y,
+    output [ 8:0] cross1_x,
+    output [ 8:0] cross1_y,
+    output [ 8:0] cross2_x,
+    output [ 8:0] cross2_y,
     output [ 1:0] cross_disable
 );
 
 parameter WIDTH = 384, HEIGHT = 224,
-          XOFFSET= `ifdef JTFRAME_LIGHTGUN_XOFFSET JTFRAME_LIGHTGUN_XOFFSET `else 0 `endif,
-          YOFFSET= `ifdef JTFRAME_LIGHTGUN_YOFFSET JTFRAME_LIGHTGUN_YOFFSET `else 0 `endif;
+          XOFFSET= `ifdef JTFRAME_LIGHTGUN_XOFFSET `JTFRAME_LIGHTGUN_XOFFSET `else 0 `endif,
+          YOFFSET= `ifdef JTFRAME_LIGHTGUN_YOFFSET `JTFRAME_LIGHTGUN_YOFFSET `else 0 `endif;
 
 `ifdef JTFRAME_LIGHTGUN
 jtframe_mouse_abspos #(.W(WIDTH),.H(HEIGHT),
@@ -43,7 +47,9 @@ jtframe_mouse_abspos #(.W(WIDTH),.H(HEIGHT),
     .dy         ( mouse_1p[15: 8] ),
     .strobe     ( mouse_strobe[0] ),
     .x          ( gun_1p_x        ),
-    .y          ( gun_1p_y        )
+    .y          ( gun_1p_y        ),
+    .x_abs      ( cross1_x        ),
+    .y_abs      ( cross1_y        )
 );
 
 jtframe_mouse_abspos #(.W(WIDTH),.H(HEIGHT),
@@ -54,7 +60,9 @@ jtframe_mouse_abspos #(.W(WIDTH),.H(HEIGHT),
     .dy         ( mouse_2p[15: 8] ),
     .strobe     ( mouse_strobe[1] ),
     .x          ( gun_2p_x        ),
-    .y          ( gun_2p_y        )
+    .y          ( gun_2p_y        ),
+    .x_abs      ( cross2_x        ),
+    .y_abs      ( cross2_y        )
 );
 
 jtframe_crosshair_disable crosshair_disable(
@@ -68,6 +76,8 @@ jtframe_crosshair_disable crosshair_disable(
 `else
 assign {gun_1p_x, gun_1p_y} = 18'b0;
 assign {gun_2p_x, gun_2p_y} = 18'b0;
+assign {cross1_x, cross1_y} = 18'b0;
+assign {cross2_x, cross2_y} = 18'b0;
 assign  cross_disable   =  2'd3;
 `endif
 
