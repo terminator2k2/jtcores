@@ -24,7 +24,8 @@ module jtgaiden_objscan(
     input             lvbl,
     input             hs,
     input             blankn,
-    input             frmbuf_en,
+    input             vsize_en,     // set to have vsize independent of hsize
+    input      [ 1:0] frmbuf_en,
 
     input      [ 7:0] scry,
     input      [ 8:0] vrender,
@@ -50,9 +51,10 @@ module jtgaiden_objscan(
     input      [ 7:0] debug_bus
 );
 
-wire [12:1] scan_addr, buf_dma;
+wire [12:1] scan_addr, buf_dma, buf2x_dma;
+reg  [12:1] buf1_rd;
 reg  [15:0] scan_dout;
-wire [15:0] buf_dout;
+wire [15:0] buf_dout, buf2x_dout;
 wire [ 8:0] vlatch;
 wire [ 2:0] st, haddr, hsub;
 reg  [ 2:0] hreps=0;
@@ -65,19 +67,22 @@ wire [ 8:0] ydf;
 reg  [ 7:0] attr;
 reg  [ 3:0] pre_pal;
 wire [ 7:0] objcnt;
-reg  [ 1:0] hsize, vaddr;
+reg  [ 1:0] hsize, vsize, vaddr;
 reg         inzone, hadj;
 
 assign draw_step = st==5;
 assign skip      = st==1 && !en;
-// assign vsize     = size;
 assign ydf       = ydiff^{9{vflip}};
 assign scan_addr[12] = 0;
 assign objcnt    = scan_addr[4+:8];
 
+localparam [1:0] DOUBLE_FRAME_BUFFER = 2'b10,
+                 SINGLE_FRAME_BUFFER = 2'b01,
+                 NO_FRAME_BUFFER     = 2'b00;
+
 always @* begin
     ydiff = vlatch - y-9'd1;
-    case( size )
+    case( vsize )
         0: inzone = ydiff[8:3]==0; //   8
         1: inzone = ydiff[8:4]==0; //  16
         2: inzone = ydiff[8:5]==0; //  32
@@ -97,16 +102,30 @@ end
 always @* begin
     rom_addr = {raw_addr[19:7],raw_addr[5],~raw_addr[6],raw_addr[4:2]};
     hpos     = x + {2'd0,hsub,4'd0};
-    case( hsize )
-        0: rom_addr[6]    = code_lsb[1];
-        2: rom_addr[ 8:7] = {vaddr[0],haddr[0]};     //32
-        3: rom_addr[10:7] = {vaddr[1],hadj,vaddr[0],haddr[0]};   //64
-        default:;
-    endcase
+    if(vsize_en) begin
+        case( hsize )
+            0: rom_addr[6] = code_lsb[1];
+            2: rom_addr[7] = haddr[0];     //32
+            3: {rom_addr[9],rom_addr[7]} = {hadj,haddr[0]};   //64
+            default:;
+        endcase
+        case( vsize )
+            2: rom_addr[8] = vaddr[0];     //32
+            3: {rom_addr[10],rom_addr[8]} = vaddr[1:0];   //64
+            default:;
+        endcase
+    end else begin
+        case( hsize )
+            0: rom_addr[6]    = code_lsb[1];
+            2: rom_addr[ 8:7] = {vaddr[0],haddr[0]};     //32
+            3: rom_addr[10:7] = {vaddr[1],hadj,vaddr[0],haddr[0]};   //64
+            default:;
+        endcase
+    end
 end
 
 always @(posedge clk) begin
-    yoffset <= frmbuf_en ? -9'd2 : 9'd0;
+    yoffset <= frmbuf_en==NO_FRAME_BUFFER ? 9'd0 : -9'd2;
 end
 
 always @(posedge clk) begin
@@ -116,7 +135,10 @@ always @(posedge clk) begin
             attr <= scan_dout[7:0];
         end
         1: {code,code_lsb} <= scan_dout[14:0];
-        2: {pre_pal,size} <= {scan_dout[7:4],scan_dout[1:0]};
+        2: begin
+            {pre_pal,size} <= {scan_dout[7:4],scan_dout[1:0]};
+            vsize <= vsize_en ? scan_dout[3:2] : scan_dout[1:0];
+        end
         3: begin
             y <= scan_dout[8:0]+{1'd0,scry}+yoffset;
             case(size)
@@ -148,24 +170,49 @@ jtframe_blink u_blink(
     .blink      ( blink     )
 );
 
+wire fb1_busy;
+
 jtframe_framebuf #(.AW(12),.DW(16))u_framebuf(
     .clk        ( clk       ),
     .lvbl       ( lvbl      ),
+    .busy       ( fb1_busy  ),
     .dma_addr   ( buf_dma   ),
     .dma_data   ( ram_dout  ),
 
-    .rd_addr    ( scan_addr ),
+    .rd_addr    ( buf1_rd   ),
     .rd_data    ( buf_dout  )
+);
+// to do: delete second frame buffer if finally no game uses it
+jtframe_framebuf #(.AW(12),.DW(16))u_framebuf2(
+    .clk        ( clk       ),
+    .lvbl       ( fb1_busy  ),
+    .busy       (           ),
+    .dma_addr   ( buf2x_dma ),
+    .dma_data   ( buf_dout  ),
+
+    .rd_addr    ( scan_addr ),
+    .rd_data    ( buf2x_dout)
 );
 
 always @* begin
-    if(frmbuf_en) begin
-        ram_addr  = buf_dma;
-        scan_dout = buf_dout;
-    end else begin
-        ram_addr  = scan_addr;
-        scan_dout = ram_dout;
-    end
+    case( frmbuf_en )
+        DOUBLE_FRAME_BUFFER: begin
+            ram_addr  = buf_dma;
+            buf1_rd   = buf2x_dma;
+            scan_dout = buf2x_dout;
+        end
+        SINGLE_FRAME_BUFFER: begin
+            ram_addr  = buf_dma;
+            buf1_rd   = scan_addr;
+            scan_dout = buf_dout;
+        end
+        default: begin
+            ram_addr  = scan_addr;
+            scan_dout = ram_dout;
+            // unused:
+            buf1_rd   = scan_addr;
+        end
+    endcase
 end
 
 jtframe_objscan #(.OBJW(8),.STW(3))u_scan(

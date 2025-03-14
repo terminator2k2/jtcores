@@ -17,24 +17,12 @@
     Date: 1-1-2025 */
 
 module jtgaiden_wildfang_lut(
-    input                rst,
     input                clk,
-    input                we,
-    input          [7:0] din,
-    output reg     [7:0] dout
+    input          [4:0] addr,
+    output reg    [15:0] jump
 );
 
-localparam [3:0] INIT=0, 
-                 CODEMSB=1,
-                 CODELSB=2,
-                 SELNIB3=3, // nibble selection
-                 SELNIB2=4,
-                 SELNIB1=5,
-                 SELNIB0=6;
-
-reg [ 4:0] jumpcode;
 reg [15:0] jump_lut[0:16];
-reg [15:0] jump;
 
 initial begin
     jump_lut = '{
@@ -44,22 +32,7 @@ initial begin
 end
 
 always @(posedge clk) begin
-    jump <= jump_lut[jumpcode];
-end
-
-always @(posedge clk) begin
-    if(rst) begin
-        dout <= 0;
-    end else if(we) case(din[7:4])
-        INIT:    dout <= 0;
-        CODEMSB: begin jumpcode[4]   <= din[0];   dout<=8'h10; end
-        CODELSB: begin jumpcode[3:0] <= din[3:0]; dout<=8'h20; end
-        SELNIB3: dout <= {4'h4,jump[12+:4]};
-        SELNIB2: dout <= {4'h5,jump[ 8+:4]};
-        SELNIB1: dout <= {4'h6,jump[ 4+:4]};
-        SELNIB0: dout <= {4'h7,jump[ 0+:4]};
-        default:;
-    endcase
+    jump <= jump_lut[addr];
 end
 
 endmodule    
